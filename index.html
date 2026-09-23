@@ -1,0 +1,999 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pomofucas Clock</title>
+<style>
+  :root {
+    --bg: #0e0f13;
+    --panel: #16181f;
+    --face: #12141a;
+    --tick-major: #c8ccd6;
+    --tick-minor: #565b66;
+    --text: #e8eaf0;
+    --muted: #8a8f9c;
+    --work: #ff6b4a;
+    --work-fill: rgba(255,107,74,0.4);
+    --rest: #40c9a6;
+    --rest-fill: rgba(64,201,166,0.4);
+    --alarm: #f4c430;
+    --border: #2a2d36;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f2f3f6;
+      --panel: #ffffff;
+      --face: #ffffff;
+      --tick-major: #33363f;
+      --tick-minor: #b4b8c2;
+      --text: #1b1d23;
+      --muted: #6b6f79;
+      --border: #dcdfe6;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .app {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 32px;
+    align-items: flex-start;
+    justify-content: center;
+    max-width: 900px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: 0.02em;
+  }
+  .clock-col { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
+  .clock-wrap {
+    position: relative;
+    width: min(88vw, 60vh, 520px);
+    aspect-ratio: 1 / 1;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    filter: drop-shadow(0 6px 24px rgba(0,0,0,0.25));
+  }
+  .banner {
+    position: absolute;
+    top: 46%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    padding: 10px 22px;
+    border-radius: 10px;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s ease, transform 0.35s ease;
+    white-space: nowrap;
+  }
+  .banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  .banner.work { box-shadow: 0 0 0 2px var(--work) inset; }
+  .banner.rest { box-shadow: 0 0 0 2px var(--rest) inset; }
+  .banner.alarm { box-shadow: 0 0 0 2px var(--alarm) inset; }
+  .legend { display: flex; gap: 18px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .controls { display: flex; gap: 10px; }
+  button {
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 18px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.primary { background: var(--work); border-color: var(--work); color: #1a0d08; }
+
+  .hamburger {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 10002;
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+    z-index: 10000;
+  }
+  .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+  .panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100vh;
+    width: min(340px, 88vw);
+    overflow-y: auto;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    padding: 64px 22px 24px;
+    box-sizing: border-box;
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+    z-index: 10001;
+  }
+  .panel.open { transform: translateX(0); }
+  .drawer-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+  .drawer-close:hover { color: var(--text); }
+  .stat { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .stat:last-child { border-bottom: none; }
+  .stat .label { color: var(--muted); }
+  .stat .value { font-variant-numeric: tabular-nums; font-weight: 600; }
+  #segLabel.work { color: var(--work); }
+  #segLabel.rest { color: var(--rest); }
+
+  .log-title { font-size: 13px; color: var(--muted); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+  #hourlog { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow-y: auto; font-size: 13px; font-variant-numeric: tabular-nums; }
+  #hourlog li { padding: 5px 0; border-bottom: 1px dashed var(--border); color: var(--muted); }
+  #hourlog li:before { content: "⏱ "; }
+  #hourlog:empty:after { content: "No full hours logged yet."; color: var(--muted); font-style: italic; }
+
+  .alarm-add { display: flex; gap: 6px; margin-bottom: 8px; }
+  .alarm-add input, .alarm-add button {
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+  }
+  .alarm-add input[type="time"] { flex: 0 0 110px; }
+  .alarm-add input[type="text"] { flex: 1; min-width: 0; }
+  .alarm-add button { background: var(--panel); cursor: pointer; font-weight: 600; }
+  .alarm-list { list-style: none; margin: 0 0 4px; padding: 0; max-height: 150px; overflow-y: auto; font-size: 13px; }
+  .alarm-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+  .alarm-list li.disabled { opacity: 0.45; }
+  .alarm-list li label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .alarm-del { background: none; border: none; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 4px; }
+  .alarm-del:hover { color: var(--work); }
+  .alarm-list:empty:after { content: "No alarms set."; color: var(--muted); font-style: italic; }
+
+  .calib-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9998; }
+  .calib-instructions {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    color: #fff; font-size: 14px; background: rgba(0,0,0,0.6);
+    padding: 8px 16px; border-radius: 8px; text-align: center; z-index: 9999;
+  }
+  .calib-cancel {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 9999;
+  }
+  .calib-dot {
+    position: absolute; width: 30px; height: 30px; margin: -15px;
+    border-radius: 50%; background: #f4c430; border: 3px solid #fff;
+    color: #1a0d08; font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none;
+  }
+  .calib-dot.done { background: #40c9a6; }
+
+  .gaze-alarm {
+    position: fixed; inset: 0; pointer-events: none; z-index: 9997; opacity: 0;
+    background: radial-gradient(circle, rgba(255,0,0,0) 55%, rgba(255,0,0,0.55) 100%);
+  }
+  .gaze-alarm.active { animation: gazePulse 1s infinite; }
+  @keyframes gazePulse { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+</style>
+</head>
+<body>
+<button id="btnMenu" class="hamburger" aria-label="Open menu">☰</button>
+<div id="drawerBackdrop" class="drawer-backdrop"></div>
+<div class="app">
+  <div class="clock-col">
+    <h1>Pomofucas Clock</h1>
+    <div class="clock-wrap">
+      <canvas id="clock" width="500" height="500"></canvas>
+      <div id="banner" class="banner"></div>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--work)"></i>Work (20m)</span>
+      <span><i class="swatch" style="background:var(--rest)"></i>Rest (5m)</span>
+    </div>
+    <div class="controls">
+      <button id="btnStart" class="primary">Start</button>
+      <button id="btnPause">Pause</button>
+      <button id="btnResume" class="primary">Resume</button>
+      <button id="btnReset">Reset</button>
+      <button id="btnSound">🔇 Sound: Off</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <button id="btnCloseDrawer" class="drawer-close" aria-label="Close menu">×</button>
+    <div class="stat"><span class="label">Wall clock</span><span class="value" id="clockTime">--:--:--</span></div>
+    <div class="stat"><span class="label">Segment</span><span class="value" id="segLabel">Idle</span></div>
+    <div class="stat"><span class="label">Time left in segment</span><span class="value" id="segRemain">--:--</span></div>
+    <div class="stat"><span class="label">Total running time</span><span class="value" id="totalRun">0:00</span></div>
+    <div class="stat"><span class="label">Next hour mark in</span><span class="value" id="nextHour">60:00</span></div>
+    <div class="stat"><span class="label">Hours logged</span><span class="value" id="hourcount">0</span></div>
+
+    <!-- Eye tracking temporarily disabled — see commented block near end of <script> and the commented WebGazer <script src> tag below.
+    <div class="log-title">Eye tracking</div>
+    <div class="stat"><span class="label">Status</span><span class="value" id="gazeStatus">Off</span></div>
+    <div class="alarm-add">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">Buffer <input type="number" id="gazeBuffer" min="1" max="30" value="5" style="width:52px;">s</label>
+      <button id="btnCalibrate">Calibrate</button>
+      <button id="btnStopGaze" style="display:none;">Stop</button>
+    </div>
+    -->
+
+    <div class="log-title">Alarms &amp; reminders</div>
+    <div class="alarm-add">
+      <input type="time" id="alarmTime">
+      <input type="text" id="alarmLabel" placeholder="Reminder text (optional)">
+      <button id="btnAddAlarm">Add</button>
+    </div>
+    <ul id="alarmList" class="alarm-list"></ul>
+
+    <div class="log-title">Hour scoreboard</div>
+    <ul id="hourlog"></ul>
+  </div>
+</div>
+
+<!--
+<div id="calibOverlay" class="calib-overlay" style="display:none;"></div>
+<div id="gazeAlarmOverlay" class="gaze-alarm"></div>
+<script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+-->
+<script>
+(function(){
+  let CANVAS_SIZE = 500;
+  let CENTER = CANVAS_SIZE / 2;
+  let R = CENTER - 20;
+  const canvas = document.getElementById('clock');
+  const ctx = canvas.getContext('2d');
+
+  function setupCanvas(){
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const size = Math.max(200, Math.round(rect.width || CANVAS_SIZE));
+    CANVAS_SIZE = size;
+    CENTER = CANVAS_SIZE / 2;
+    R = CENTER - CANVAS_SIZE * 0.04;
+    canvas.width = CANVAS_SIZE * dpr;
+    canvas.height = CANVAS_SIZE * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  setupCanvas();
+  window.addEventListener('resize', setupCanvas);
+
+  const WORK_MS = 20 * 60 * 1000;
+  const REST_MS = 5 * 60 * 1000;
+  const HOUR_MS = 60 * 60 * 1000;
+  const FLASH_DURATION = 900;
+
+  const LOG_KEY = 'pomofucas-hourlog';
+  function loadLog(){
+    try { return JSON.parse(localStorage.getItem(LOG_KEY)) || []; }
+    catch(e){ return []; }
+  }
+  function saveLog(log){ localStorage.setItem(LOG_KEY, JSON.stringify(log)); }
+  let hourLog = loadLog();
+
+  const state = {
+    status: 'idle',            // idle | running | paused
+    segmentType: null,         // work | rest
+    segmentStartWall: null,    // ms timestamp, real wall-clock time segment began
+    segmentDurationMs: 0,
+    pauseDuringSegment: 0,     // ms paused so far within this segment
+    pauseStartedAt: null,
+    totalRunningMs: 0,         // excludes paused time, independent of segment cycle
+    nextHourThreshold: HOUR_MS,
+    lastTick: null,
+    flashStart: null,
+    segFlashStart: null,
+    segFlashType: null,
+  };
+
+  function renderLog(){
+    const ul = document.getElementById('hourlog');
+    ul.innerHTML = '';
+    hourLog.slice().reverse().forEach(ts => {
+      const li = document.createElement('li');
+      li.textContent = new Date(ts).toLocaleString();
+      ul.appendChild(li);
+    });
+    document.getElementById('hourcount').textContent = hourLog.length;
+  }
+  renderLog();
+
+  // --- hamburger drawer ---
+  const btnMenu = document.getElementById('btnMenu');
+  const btnCloseDrawer = document.getElementById('btnCloseDrawer');
+  const drawerBackdrop = document.getElementById('drawerBackdrop');
+  const panelEl = document.querySelector('.panel');
+
+  function openDrawer(){
+    panelEl.classList.add('open');
+    drawerBackdrop.classList.add('open');
+  }
+  function closeDrawer(){
+    panelEl.classList.remove('open');
+    drawerBackdrop.classList.remove('open');
+  }
+  btnMenu.addEventListener('click', openDrawer);
+  btnCloseDrawer.addEventListener('click', closeDrawer);
+  drawerBackdrop.addEventListener('click', closeDrawer);
+
+  function angleForTime(t){
+    const d = new Date(t);
+    const minutes = d.getMinutes() + d.getSeconds()/60 + d.getMilliseconds()/60000;
+    return -Math.PI/2 + (minutes/60) * Math.PI * 2;
+  }
+
+  function startSegment(type, wall){
+    state.segmentType = type;
+    state.segmentStartWall = wall;
+    state.segmentDurationMs = type === 'work' ? WORK_MS : REST_MS;
+    state.pauseDuringSegment = 0;
+    state.pauseStartedAt = null;
+  }
+
+  function start(){
+    if (state.status !== 'idle') return;
+    const now = Date.now();
+    state.status = 'running';
+    state.totalRunningMs = 0;
+    state.nextHourThreshold = HOUR_MS;
+    state.lastTick = now;
+    startSegment('work', now);
+    triggerIndication('work', false);
+    updateButtons();
+  }
+  function pause(){
+    if (state.status !== 'running') return;
+    state.status = 'paused';
+    state.pauseStartedAt = Date.now();
+    updateButtons();
+  }
+  function resume(){
+    if (state.status !== 'paused') return;
+    const now = Date.now();
+    state.pauseDuringSegment += now - state.pauseStartedAt;
+    state.pauseStartedAt = null;
+    state.status = 'running';
+    state.lastTick = now;
+    updateButtons();
+  }
+  function reset(){
+    state.status = 'idle';
+    state.segmentType = null;
+    state.segmentStartWall = null;
+    state.segmentDurationMs = 0;
+    state.pauseDuringSegment = 0;
+    state.pauseStartedAt = null;
+    state.totalRunningMs = 0;
+    state.nextHourThreshold = HOUR_MS;
+    state.segFlashStart = null;
+    hideBanner();
+    updateButtons();
+  }
+
+  function updateButtons(){
+    document.getElementById('btnStart').style.display = state.status === 'idle' ? '' : 'none';
+    document.getElementById('btnPause').style.display = state.status === 'running' ? '' : 'none';
+    document.getElementById('btnResume').style.display = state.status === 'paused' ? '' : 'none';
+    document.getElementById('btnReset').disabled = state.status === 'idle';
+  }
+
+  document.getElementById('btnStart').addEventListener('click', start);
+  document.getElementById('btnPause').addEventListener('click', pause);
+  document.getElementById('btnResume').addEventListener('click', resume);
+  document.getElementById('btnReset').addEventListener('click', reset);
+  updateButtons();
+
+  // --- ticking sound ---
+  let audioCtx = null;
+  let soundOn = false;
+  let lastTickSecond = null;
+  const btnSound = document.getElementById('btnSound');
+
+  function playTick(isTock){
+    if (!audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = isTock ? 780 : 1000;
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(0.2, t0 + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.04);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.05);
+  }
+
+  btnSound.addEventListener('click', () => {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    soundOn = !soundOn;
+    btnSound.textContent = soundOn ? '🔊 Sound: On' : '🔇 Sound: Off';
+  });
+
+  function playChime(){
+    if (!audioCtx || !soundOn) return;
+    const freqs = [880, 1108, 1318];
+    freqs.forEach((f, i) => {
+      const t0 = audioCtx.currentTime + i * 0.12;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = f;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.4);
+    });
+  }
+
+  // --- start/end-of-period indication (banner + colored flash + chime) ---
+  const bannerEl = document.getElementById('banner');
+  let bannerTimeout = null;
+
+  function showBanner(text, type){
+    bannerEl.textContent = text;
+    bannerEl.className = 'banner show ' + type;
+    clearTimeout(bannerTimeout);
+    bannerTimeout = setTimeout(() => bannerEl.classList.remove('show'), 1800);
+  }
+  function hideBanner(){
+    clearTimeout(bannerTimeout);
+    bannerEl.classList.remove('show');
+  }
+
+  function triggerIndication(type, isTransition){
+    state.segFlashStart = Date.now();
+    state.segFlashType = type;
+    const label = type === 'work' ? 'Work' : 'Rest';
+    showBanner(isTransition ? `Time's up — ${label}` : `${label} started`, type);
+    if (isTransition) playChime();
+  }
+
+  // --- alarms & reminders ---
+  const ALARM_KEY = 'pomofucas-alarms';
+  function loadAlarms(){
+    try { return JSON.parse(localStorage.getItem(ALARM_KEY)) || []; }
+    catch(e){ return []; }
+  }
+  function saveAlarms(){ localStorage.setItem(ALARM_KEY, JSON.stringify(alarms)); }
+  let alarms = loadAlarms();
+
+  const alarmListEl = document.getElementById('alarmList');
+  const alarmTimeInput = document.getElementById('alarmTime');
+  const alarmLabelInput = document.getElementById('alarmLabel');
+
+  function renderAlarms(){
+    alarmListEl.innerHTML = '';
+    alarms.slice().sort((a, b) => a.time.localeCompare(b.time)).forEach(a => {
+      const li = document.createElement('li');
+      li.className = a.enabled ? '' : 'disabled';
+
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = a.enabled;
+      checkbox.addEventListener('change', () => {
+        a.enabled = checkbox.checked;
+        saveAlarms();
+        renderAlarms();
+      });
+      const span = document.createElement('span');
+      span.textContent = `${a.time} — ${a.label || 'Alarm'}`;
+      label.appendChild(checkbox);
+      label.appendChild(span);
+
+      const del = document.createElement('button');
+      del.className = 'alarm-del';
+      del.textContent = '×';
+      del.title = 'Remove';
+      del.addEventListener('click', () => {
+        alarms = alarms.filter(x => x.id !== a.id);
+        saveAlarms();
+        renderAlarms();
+      });
+
+      li.appendChild(label);
+      li.appendChild(del);
+      alarmListEl.appendChild(li);
+    });
+  }
+  renderAlarms();
+
+  document.getElementById('btnAddAlarm').addEventListener('click', () => {
+    if (!alarmTimeInput.value) return;
+    alarms.push({
+      id: Date.now() + '-' + Math.random().toString(36).slice(2),
+      time: alarmTimeInput.value,
+      label: alarmLabelInput.value.trim(),
+      enabled: true,
+      lastFired: null,
+    });
+    saveAlarms();
+    renderAlarms();
+    alarmLabelInput.value = '';
+  });
+
+  function playAlarmSound(){
+    if (!audioCtx || !soundOn) return;
+    for (let i = 0; i < 4; i++){
+      const t0 = audioCtx.currentTime + i * 0.3;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 1046;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.2);
+    }
+  }
+
+  function triggerAlarm(label){
+    state.segFlashStart = Date.now();
+    state.segFlashType = 'alarm';
+    showBanner(`⏰ ${label || 'Alarm'}`, 'alarm');
+    playAlarmSound();
+  }
+
+  function checkAlarms(now){
+    const d = new Date(now);
+    const hhmm = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+    const today = d.getFullYear() + '-' + (d.getMonth()+1).toString().padStart(2,'0') + '-' + d.getDate().toString().padStart(2,'0');
+    let changed = false;
+    alarms.forEach(a => {
+      if (a.enabled && a.time === hhmm && a.lastFired !== today){
+        a.lastFired = today;
+        changed = true;
+        triggerAlarm(a.label);
+      }
+    });
+    if (changed){ saveAlarms(); renderAlarms(); }
+  }
+
+  /* --- eye tracking temporarily disabled ---
+  // --- eye tracking (WebGazer): pause + flash when gaze leaves the viewport ---
+  const gazeStatusEl = document.getElementById('gazeStatus');
+  const gazeBufferInput = document.getElementById('gazeBuffer');
+  const btnCalibrate = document.getElementById('btnCalibrate');
+  const btnStopGaze = document.getElementById('btnStopGaze');
+  const calibOverlay = document.getElementById('calibOverlay');
+  const gazeAlarmOverlay = document.getElementById('gazeAlarmOverlay');
+  const CLICKS_PER_DOT = 5;
+
+  const gaze = {
+    tracking: false,
+    awaySince: null,
+    alarming: false,
+    autoPausedByGaze: false,
+    alarmSoundTimer: null,
+  };
+
+  function setGazeStatus(text){ gazeStatusEl.textContent = text; }
+
+  function startCalibration(){
+    if (typeof webgazer === 'undefined'){
+      setGazeStatus('Failed to load (check internet)');
+      return;
+    }
+    calibOverlay.innerHTML = '';
+    const instructions = document.createElement('p');
+    instructions.className = 'calib-instructions';
+    instructions.innerHTML = `Look at each dot and click it ${CLICKS_PER_DOT} times. (<span id="calibProgress">0/9</span> done)`;
+    calibOverlay.appendChild(instructions);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'calib-cancel';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', cancelCalibration);
+    calibOverlay.appendChild(cancelBtn);
+
+    // Corners/edges/center of the actual viewport in use, not a fixed resolution.
+    const positions = [[2,2],[50,2],[98,2],[2,50],[50,50],[98,50],[2,98],[50,98],[98,98]];
+    let doneCount = 0;
+    positions.forEach(([xPct, yPct]) => {
+      const dot = document.createElement('div');
+      dot.className = 'calib-dot';
+      dot.style.left = xPct + '%';
+      dot.style.top = yPct + '%';
+      let clicks = 0;
+      dot.textContent = CLICKS_PER_DOT;
+      dot.addEventListener('click', () => {
+        if (dot.classList.contains('done')) return;
+        clicks++;
+        dot.textContent = Math.max(0, CLICKS_PER_DOT - clicks);
+        if (clicks >= CLICKS_PER_DOT){
+          dot.classList.add('done');
+          dot.textContent = '✓';
+          doneCount++;
+          const progressEl = document.getElementById('calibProgress');
+          if (progressEl) progressEl.textContent = doneCount + '/' + positions.length;
+          if (doneCount === positions.length) finishCalibration();
+        }
+      });
+      calibOverlay.appendChild(dot);
+    });
+
+    calibOverlay.style.display = 'block';
+    setGazeStatus('Calibrating…');
+
+    webgazer.setGazeListener(handleGazeSample).begin();
+    webgazer.showVideoPreview(true).showPredictionPoints(false);
+  }
+
+  function cancelCalibration(){
+    calibOverlay.style.display = 'none';
+    if (typeof webgazer !== 'undefined' && !gaze.tracking) webgazer.end();
+    setGazeStatus('Off');
+  }
+
+  function finishCalibration(){
+    calibOverlay.style.display = 'none';
+    gaze.tracking = true;
+    btnCalibrate.style.display = 'none';
+    btnStopGaze.style.display = '';
+    setGazeStatus('Active');
+  }
+
+  function stopGazeTracking(){
+    if (typeof webgazer !== 'undefined') webgazer.end();
+    gaze.tracking = false;
+    gaze.awaySince = null;
+    stopGazeAlarm();
+    btnCalibrate.style.display = '';
+    btnStopGaze.style.display = 'none';
+    setGazeStatus('Off');
+  }
+
+  function handleGazeSample(data){
+    if (!gaze.tracking || !data) return;
+    const inside = data.x >= 0 && data.x <= window.innerWidth && data.y >= 0 && data.y <= window.innerHeight;
+    const now = Date.now();
+    if (inside){
+      gaze.awaySince = null;
+      if (gaze.alarming) stopGazeAlarm();
+      setGazeStatus('Active');
+    } else {
+      if (gaze.awaySince == null) gaze.awaySince = now;
+      const bufferMs = Math.max(1, Number(gazeBufferInput.value) || 5) * 1000;
+      const awayMs = now - gaze.awaySince;
+      if (awayMs >= bufferMs){
+        if (!gaze.alarming) startGazeAlarm();
+        setGazeStatus(`Away ${Math.round(awayMs/1000)}s`);
+      } else {
+        setGazeStatus(`Looking away (grace ${Math.ceil((bufferMs-awayMs)/1000)}s)`);
+      }
+    }
+  }
+
+  function startGazeAlarm(){
+    gaze.alarming = true;
+    gazeAlarmOverlay.classList.add('active');
+    if (state.status === 'running'){
+      pause();
+      gaze.autoPausedByGaze = true;
+    }
+    if (audioCtx && soundOn){
+      playAlarmSound();
+      gaze.alarmSoundTimer = setInterval(playAlarmSound, 1500);
+    }
+  }
+
+  function stopGazeAlarm(){
+    gaze.alarming = false;
+    gazeAlarmOverlay.classList.remove('active');
+    if (gaze.alarmSoundTimer){ clearInterval(gaze.alarmSoundTimer); gaze.alarmSoundTimer = null; }
+    if (gaze.autoPausedByGaze){
+      resume();
+      gaze.autoPausedByGaze = false;
+    }
+  }
+
+  btnCalibrate.addEventListener('click', startCalibration);
+  btnStopGaze.addEventListener('click', stopGazeTracking);
+  */
+
+  function segmentElapsed(now){
+    if (state.segmentStartWall == null) return 0;
+    let elapsed = now - state.segmentStartWall - state.pauseDuringSegment;
+    if (state.pauseStartedAt) elapsed -= (now - state.pauseStartedAt);
+    return Math.max(0, Math.min(elapsed, state.segmentDurationMs));
+  }
+
+  function tick(now){
+    if (state.status === 'running'){
+      const delta = now - (state.lastTick || now);
+      state.totalRunningMs += delta;
+      while (state.totalRunningMs >= state.nextHourThreshold){
+        hourLog.push(now);
+        saveLog(hourLog);
+        renderLog();
+        state.flashStart = now;
+        state.nextHourThreshold += HOUR_MS;
+      }
+      const elapsed = segmentElapsed(now);
+      if (elapsed >= state.segmentDurationMs){
+        const nextType = state.segmentType === 'work' ? 'rest' : 'work';
+        startSegment(nextType, now);
+        triggerIndication(nextType, true);
+      }
+    }
+    state.lastTick = now;
+  }
+
+  function drawHand(angle, len, width, color){
+    ctx.beginPath();
+    ctx.moveTo(CENTER, CENTER);
+    ctx.lineTo(CENTER + Math.cos(angle)*len, CENTER + Math.sin(angle)*len);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+
+  function cssVar(name){
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  function fmtClock(ms){
+    const totalSec = Math.max(0, Math.ceil(ms/1000));
+    const m = Math.floor(totalSec/60);
+    const s = totalSec % 60;
+    return `${m}:${s.toString().padStart(2,'0')}`;
+  }
+
+  function drawSegmentReadout(now){
+    const s = R / 230; // scale factor relative to the reference design (R=230)
+    const cx = CENTER;
+    const cy = CENTER + R * 0.42;
+
+    let label, timeStr, color;
+    if (state.status === 'idle'){
+      label = 'READY';
+      timeStr = fmtClock(WORK_MS);
+      color = cssVar('--muted');
+    } else {
+      const remainMs = state.segmentDurationMs - segmentElapsed(now);
+      timeStr = fmtClock(remainMs);
+      label = (state.segmentType === 'work' ? 'WORK' : 'REST') + (state.status === 'paused' ? ' · PAUSED' : '');
+      color = state.segmentType === 'work' ? cssVar('--work') : cssVar('--rest');
+    }
+
+    const smallFont = Math.max(8, Math.round(11 * s));
+    const bigFont = Math.max(13, Math.round(22 * s));
+    const padX = 24 * s;
+    const boxHeight = 46 * s;
+    const labelOffset = 12 * s;
+    const timeOffset = 9 * s;
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${smallFont}px system-ui, sans-serif`;
+    const labelWidth = ctx.measureText(label).width;
+    ctx.font = `700 ${bigFont}px system-ui, sans-serif`;
+    const timeWidth = ctx.measureText(timeStr).width;
+    const boxWidth = Math.max(labelWidth, timeWidth) + padX;
+
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(cx - boxWidth/2, cy - boxHeight/2, boxWidth, boxHeight, 10 * s);
+    else ctx.rect(cx - boxWidth/2, cy - boxHeight/2, boxWidth, boxHeight);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fill();
+
+    ctx.font = `700 ${smallFont}px system-ui, sans-serif`;
+    ctx.fillStyle = color;
+    ctx.fillText(label, cx, cy - labelOffset);
+
+    ctx.font = `700 ${bigFont}px system-ui, sans-serif`;
+    ctx.fillStyle = cssVar('--text');
+    ctx.fillText(timeStr, cx, cy + timeOffset);
+  }
+
+  function draw(now){
+    ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    const s = R / 230; // scale factor relative to the reference design (R=230)
+
+    ctx.beginPath();
+    ctx.arc(CENTER, CENTER, R, 0, Math.PI*2);
+    ctx.fillStyle = cssVar('--face');
+    ctx.fill();
+    ctx.lineWidth = Math.max(1, 3 * s);
+    ctx.strokeStyle = cssVar('--border');
+    ctx.stroke();
+
+    if (state.status !== 'idle' && state.segmentStartWall != null){
+      const startAngle = angleForTime(state.segmentStartWall);
+      const elapsed = segmentElapsed(now);
+      const frac = state.segmentDurationMs > 0 ? elapsed / state.segmentDurationMs : 0;
+      const fullSweep = (state.segmentDurationMs / HOUR_MS) * Math.PI * 2;
+      const currentAngle = startAngle + fullSweep * frac;
+      ctx.beginPath();
+      ctx.moveTo(CENTER, CENTER);
+      ctx.arc(CENTER, CENTER, R*0.85, startAngle, currentAngle, false);
+      ctx.closePath();
+      ctx.fillStyle = state.segmentType === 'work' ? cssVar('--work-fill') : cssVar('--rest-fill');
+      ctx.fill();
+    }
+
+    for (let i = 0; i < 60; i++){
+      const a = (i/60) * Math.PI*2 - Math.PI/2;
+      const major = i % 5 === 0;
+      const inner = major ? R*0.87 : R*0.90;
+      const outer = R*0.97;
+      ctx.beginPath();
+      ctx.moveTo(CENTER + Math.cos(a)*inner, CENTER + Math.sin(a)*inner);
+      ctx.lineTo(CENTER + Math.cos(a)*outer, CENTER + Math.sin(a)*outer);
+      ctx.strokeStyle = major ? cssVar('--tick-major') : cssVar('--tick-minor');
+      ctx.lineWidth = Math.max(0.5, (major ? 2 : 1) * s);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = cssVar('--tick-major');
+    ctx.font = `bold ${Math.max(9, Math.round(18 * s))}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let h = 1; h <= 12; h++){
+      const a = (h/12) * Math.PI*2 - Math.PI/2;
+      const r = R*0.72;
+      ctx.fillText(h.toString(), CENTER + Math.cos(a)*r, CENTER + Math.sin(a)*r);
+    }
+
+    drawSegmentReadout(now);
+
+    const d = new Date(now);
+    const hourFrac = (d.getHours() % 12) + d.getMinutes()/60;
+    const minFrac = d.getMinutes() + d.getSeconds()/60;
+    const secFrac = d.getSeconds() + d.getMilliseconds()/1000;
+
+    const handColor = cssVar('--text');
+    drawHand((hourFrac/12)*Math.PI*2 - Math.PI/2, R*0.42, Math.max(1.5, 6*s), handColor);
+    drawHand((minFrac/60)*Math.PI*2 - Math.PI/2, R*0.62, Math.max(1.2, 4*s), handColor);
+    drawHand((secFrac/60)*Math.PI*2 - Math.PI/2, R*0.75, Math.max(0.8, 2*s), cssVar('--work'));
+
+    ctx.beginPath();
+    ctx.arc(CENTER, CENTER, Math.max(2.5, 6*s), 0, Math.PI*2);
+    ctx.fillStyle = handColor;
+    ctx.fill();
+
+    if (state.segFlashStart != null){
+      const SEG_FLASH_DURATION = 700;
+      const t = now - state.segFlashStart;
+      if (t < SEG_FLASH_DURATION){
+        const alpha = 1 - t/SEG_FLASH_DURATION;
+        const color = state.segFlashType === 'work' ? cssVar('--work')
+          : state.segFlashType === 'rest' ? cssVar('--rest')
+          : cssVar('--alarm');
+        ctx.beginPath();
+        ctx.arc(CENTER, CENTER, R + 6*s, 0, Math.PI*2);
+        ctx.lineWidth = Math.max(2, 8 * s);
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = alpha;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      } else {
+        state.segFlashStart = null;
+      }
+    }
+
+    if (state.flashStart != null){
+      const t = now - state.flashStart;
+      if (t < FLASH_DURATION){
+        const alpha = 1 - t/FLASH_DURATION;
+        ctx.beginPath();
+        ctx.arc(CENTER, CENTER, R, 0, Math.PI*2);
+        ctx.fillStyle = `rgba(255,255,255,${alpha*0.6})`;
+        ctx.fill();
+      } else {
+        state.flashStart = null;
+      }
+    }
+  }
+
+  function fmt(ms){
+    const totalSec = Math.max(0, Math.ceil(ms/1000));
+    const m = Math.floor(totalSec/60);
+    const s = totalSec % 60;
+    return `${m}:${s.toString().padStart(2,'0')}`;
+  }
+
+  function updateInfo(now){
+    document.getElementById('clockTime').textContent = new Date(now).toLocaleTimeString();
+    const segLabel = document.getElementById('segLabel');
+    const segRemain = document.getElementById('segRemain');
+
+    if (state.status === 'idle'){
+      segLabel.textContent = 'Idle';
+      segLabel.className = '';
+      segRemain.textContent = '--:--';
+    } else {
+      segLabel.textContent = state.segmentType === 'work' ? 'Work' : 'Rest';
+      segLabel.className = state.segmentType;
+      const elapsed = segmentElapsed(now);
+      segRemain.textContent = fmt(state.segmentDurationMs - elapsed) + (state.status === 'paused' ? ' (paused)' : '');
+    }
+    document.getElementById('totalRun').textContent = fmt(state.totalRunningMs);
+    document.getElementById('nextHour').textContent = fmt(state.nextHourThreshold - state.totalRunningMs);
+  }
+
+  function loop(){
+    const now = Date.now();
+    tick(now);
+    checkAlarms(now);
+    draw(now);
+    updateInfo(now);
+    if (soundOn){
+      const currentSecond = Math.floor(now / 1000);
+      if (currentSecond !== lastTickSecond){
+        playTick(currentSecond % 2 === 0);
+        lastTickSecond = currentSecond;
+      }
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
